@@ -19,7 +19,13 @@ export const DEFAULT_PROFILE = 'default';
 /** Lowercase letters, digits and dashes, so a name is safe in a flag, a file and a log line. */
 export const PROFILE_NAME_RE = /^[a-z0-9][a-z0-9-]{0,31}$/;
 
-const GRAPH_FIELDS = ['tenant_id', 'client_id', 'client_secret'] as const;
+const GRAPH_FIELDS = [
+  'tenant_id',
+  'client_id',
+  'client_secret',
+  'client_certificate_path',
+  'client_certificate_password',
+] as const;
 
 /** Lists a source's profiles, presenting legacy top-level Graph fields as the default profile. */
 export function list_profiles(source: StoredConfig): Record<string, Partial<TenantProfile>> {
@@ -39,6 +45,8 @@ export function shared_settings(source: StoredConfig): Partial<AtlasConfig> {
     tenant_id: _tenant_id,
     client_id: _client_id,
     client_secret: _client_secret,
+    client_certificate_path: _client_certificate_path,
+    client_certificate_password: _client_certificate_password,
     ...shared
   } = source;
   return shared;

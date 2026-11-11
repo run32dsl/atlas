@@ -3,6 +3,7 @@ export {
   GRAPH_CLIENT_TOKEN,
   GRAPH_AUTH_PROVIDER_TOKEN,
 } from '@/graph-client.factory';
+export { create_graph_credential, describe_graph_auth_failure } from '@/graph-credential';
 export { parse_retry_after_ms } from './graph-retry-after';
 export { sleep as cancellable_sleep } from './graph-attempt-cancellation';
 export {

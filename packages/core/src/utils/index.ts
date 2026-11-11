@@ -18,6 +18,7 @@ export {
   unknown_profile_message,
 } from './tenant-profiles';
 export type { StoredConfig, TenantProfile } from './tenant-profiles';
+export { describe_graph_credential_problem } from './graph-credential';
 export {
   read_secure_config,
   update_secure_config,

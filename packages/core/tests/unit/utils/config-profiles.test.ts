@@ -90,7 +90,7 @@ describe('tenant profiles', () => {
       config_file({ ...SHARED, tenants: { dr: { tenant_id: 'tid-dr' } } });
 
       expect(() => load_tenant_profile('dr')).toThrow(
-        'Tenant profile "dr" is missing client_id, client_secret.',
+        'Tenant profile "dr" is missing client_id, client_secret or client_certificate_path.',
       );
     });
   });

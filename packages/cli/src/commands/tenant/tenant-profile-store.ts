@@ -7,7 +7,13 @@ import {
   update_secure_config,
 } from '@wisecom/atlas-core';
 
-const GRAPH_ENV_VARS = ['ATLAS_TENANT_ID', 'ATLAS_CLIENT_ID', 'ATLAS_CLIENT_SECRET'];
+const GRAPH_ENV_VARS = [
+  'ATLAS_TENANT_ID',
+  'ATLAS_CLIENT_ID',
+  'ATLAS_CLIENT_SECRET',
+  'ATLAS_CLIENT_CERTIFICATE_PATH',
+  'ATLAS_CLIENT_CERTIFICATE_PASSWORD',
+];
 
 /** Reads the encrypted store with legacy top-level Graph fields moved into `tenants.default`. */
 export function read_store(): StoredConfig {
@@ -43,6 +49,12 @@ export function read_graph_env_overrides(): Partial<TenantProfile> {
     ...(env.tenant_id !== undefined ? { tenant_id: env.tenant_id } : {}),
     ...(env.client_id !== undefined ? { client_id: env.client_id } : {}),
     ...(env.client_secret !== undefined ? { client_secret: env.client_secret } : {}),
+    ...(env.client_certificate_path !== undefined
+      ? { client_certificate_path: env.client_certificate_path }
+      : {}),
+    ...(env.client_certificate_password !== undefined
+      ? { client_certificate_password: env.client_certificate_password }
+      : {}),
   };
 }
 

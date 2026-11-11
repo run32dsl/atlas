@@ -1,10 +1,10 @@
 import { ListBucketsCommand } from '@aws-sdk/client-s3';
-import { ClientSecretCredential } from '@azure/identity';
 import type { GraphConfig, S3Config } from '@wisecom/atlas-core';
 import { logger } from '@wisecom/atlas-core';
+import { create_graph_credential, describe_graph_auth_failure } from '@wisecom/atlas-m365-graph';
 import { create_s3_client } from '@wisecom/atlas-s3';
 
-const GRAPH_FIELDS = ['tenant_id', 'client_id', 'client_secret'] as const;
+const GRAPH_FIELDS = ['tenant_id', 'client_id'] as const;
 const S3_FIELDS = ['s3_endpoint', 's3_access_key', 's3_secret_key'] as const;
 
 /**
@@ -16,21 +16,21 @@ export async function probe_graph(
   profile?: string,
 ): Promise<boolean> {
   const label = profile === undefined ? 'Microsoft Graph' : `Microsoft Graph [${profile}]`;
-  if (!GRAPH_FIELDS.every((f) => config[f] !== undefined)) {
+  const has_credential =
+    config.client_secret !== undefined || config.client_certificate_path !== undefined;
+  if (!GRAPH_FIELDS.every((f) => config[f] !== undefined) || !has_credential) {
     logger.warn(`${label}: credentials incomplete -- add them with "atlas tenants add"`);
     return false;
   }
   try {
-    const credential = new ClientSecretCredential(
-      config.tenant_id as string,
-      config.client_id as string,
-      config.client_secret as string,
-    );
+    const credential = create_graph_credential(config as GraphConfig);
     await credential.getToken('https://graph.microsoft.com/.default');
     logger.success(`${label}: token acquired (tenant and credentials valid)`);
     return true;
   } catch (err) {
-    logger.error(`${label} validation failed: ${(err as Error).message}`);
+    logger.error(
+      `${label} validation failed: ${describe_graph_auth_failure(err, config as GraphConfig)}`,
+    );
     return false;
   }
 }

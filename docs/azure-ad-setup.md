@@ -10,12 +10,12 @@ Atlas authenticates to Microsoft Graph with the OAuth2 client credentials flow, 
 
 In the Microsoft Entra admin center, register an application, then add these **Application** permissions under **API permissions**. Do not use Delegated permissions.
 
-| Permission             | Used for                                                                 | Needed by                             |
-| ---------------------- | ------------------------------------------------------------------------ | ------------------------------------- |
-| `Mail.Read`            | Reading mailbox contents                                                 | Backup, list, read, save, verify      |
-| `Mail.ReadWrite`       | Delta sync and full message fetch; creating messages and folders on restore | Backup and restore                 |
-| `User.Read.All`        | Enumerating users and resolving addresses to object IDs                  | User discovery                        |
-| `MailboxSettings.Read` | Reading mailbox metadata and folders, and detecting shared mailboxes     | Folder enumeration, mailbox discovery |
+| Permission             | Used for                                                                    | Needed by                             |
+| ---------------------- | --------------------------------------------------------------------------- | ------------------------------------- |
+| `Mail.Read`            | Reading mailbox contents                                                    | Backup, list, read, save, verify      |
+| `Mail.ReadWrite`       | Delta sync and full message fetch; creating messages and folders on restore | Backup and restore                    |
+| `User.Read.All`        | Enumerating users and resolving addresses to object IDs                     | User discovery                        |
+| `MailboxSettings.Read` | Reading mailbox metadata and folders, and detecting shared mailboxes        | Folder enumeration, mailbox discovery |
 
 ::: warning Mail.ReadWrite is required for backup
 Backups need `Mail.ReadWrite` as well as `Mail.Read`, because delta sync and full message fetch use it. Anyone holding the client secret can therefore modify mailboxes. Store the secret as carefully as the encryption passphrase and rotate it on a schedule (see [Client secret rotation](#client-secret-rotation)).
@@ -31,12 +31,12 @@ Then click **Grant admin consent for [your tenant]**. The permissions do not tak
 
 OneDrive, SharePoint, Contacts, and Calendar backups use their own permission sets, granted on the same app registration:
 
-| Workload                 | Permissions                                                       | Notes                                              |
-| ------------------------ | ----------------------------------------------------------------- | -------------------------------------------------- |
-| OneDrive                 | `Files.Read.All`, `User.Read.All`                                 | `Files.ReadWrite.All` is needed for restore only   |
-| Contacts                 | `Contacts.Read`                                                   | `Contacts.ReadWrite` is needed for restore only    |
-| Calendar                 | `Calendars.Read`                                                  | `Calendars.ReadWrite` is needed for restore only   |
-| SharePoint               | `Sites.Read.All`, `Files.Read.All`                                | `Sites.ReadWrite.All` is needed for restore only   |
+| Workload   | Permissions                        | Notes                                            |
+| ---------- | ---------------------------------- | ------------------------------------------------ |
+| OneDrive   | `Files.Read.All`, `User.Read.All`  | `Files.ReadWrite.All` is needed for restore only |
+| Contacts   | `Contacts.Read`                    | `Contacts.ReadWrite` is needed for restore only  |
+| Calendar   | `Calendars.Read`                   | `Calendars.ReadWrite` is needed for restore only |
+| SharePoint | `Sites.Read.All`, `Files.Read.All` | `Sites.ReadWrite.All` is needed for restore only |
 
 See [OneDrive backup](./onedrive-backup.md), [SharePoint backup](./sharepoint-backup.md), [Contacts backup](./contacts-backup.md), and [Calendar backup](./calendar-backup.md) for the commands that use them.
 
@@ -69,7 +69,7 @@ The client credentials flow has no user in the loop, so the secret carries the f
 
 - **Tenant-wide access.** The application can read every mailbox and drive in the tenant. The API does not scope access per user or per mailbox.
 - **No interactive checks.** Sign-in uses only the client ID and secret. No user signs in, so no MFA prompt applies to the request.
-- **The secret is the only barrier.** Anyone holding it has the same access as Atlas, within the granted permissions.
+- **The secret is the only barrier.** Anyone holding it, or the private key of a [certificate credential](#certificate-credentials), has the same access as Atlas, within the granted permissions.
 
 Protect the secret accordingly. Keep it in a secrets manager such as Azure Key Vault or HashiCorp Vault, or in the encrypted store with `atlas config`, rather than in plaintext files. Review Microsoft Entra sign-in logs for unexpected application sign-ins, and rotate the secret regularly.
 
@@ -84,8 +84,34 @@ Rotate the client secret at least every 90 days in production.
 
 An expired or mistyped secret fails with `AADSTS7000215`. See [troubleshooting](/troubleshooting#aadsts-error-codes).
 
-## Certificates
+## Certificate credentials
 
-Microsoft Entra ID also supports certificate credentials, which are harder to exfiltrate than a string secret and can live in an HSM. Atlas uses client secrets only, so a certificate on the app registration does not replace the secret in Atlas configuration.
+A certificate replaces the client secret. The private key stays on the machine and is never sent to Entra ID, which makes it harder to exfiltrate than a string secret, and it avoids the 90-day secret rotation.
+
+```bash
+openssl req -x509 -newkey rsa:2048 -nodes -days 365 -subj "/CN=atlas" \
+  -keyout atlas.key -out atlas.crt
+cat atlas.key atlas.crt > atlas.pem && chmod 600 atlas.pem && shred -u atlas.key
+atlas tenants add contoso --tenant-id <tenant-id> --client-id <client-id> \
+  --client-certificate ./atlas.pem
+```
+
+Upload `atlas.crt`, the public part, under **Certificates & secrets** > **Certificates** on the app registration. Atlas reads one PEM file holding both the private key and the certificate. For an encrypted key, add `--client-certificate-password -` and pipe the passphrase in. Use either a certificate or `--client-secret` on a profile, never both. The profile stores the absolute path to the file, not its contents, so the file must stay readable at that path.
+
+`atlas tenants validate <name>` requests a token with the certificate. Errors name the cause:
+
+| Error                                 | Cause                                                            |
+| ------------------------------------- | ---------------------------------------------------------------- |
+| `Cannot read client certificate file` | The path is wrong or the file is not readable by the Atlas user  |
+| `has no private key`                  | The PEM holds only the certificate. Concatenate the key into it. |
+| `AADSTS700027`                        | The certificate is not uploaded to this app registration         |
+
+### Certificate rotation
+
+1. Generate a new certificate and upload its public part next to the old one.
+2. Re-register the profile with the new file: `atlas tenants add <name> ... --client-certificate ./new.pem --replace`.
+3. Run `atlas tenants validate <name>`, then delete the old certificate from the app registration and the old PEM file from disk.
+
+Certificate thumbprints from a Windows certificate store and Azure Key Vault are not supported.
 
 See also: [Configuration](/configuration), [Security model](/security).

@@ -20,7 +20,7 @@ docker compose up -d
 ```yaml
 services:
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
     container_name: atlas-minio
     ports:
       - '${MINIO_BIND_ADDRESS:-127.0.0.1}:${MINIO_API_PORT:-9000}:9000'
@@ -52,8 +52,8 @@ required variable MINIO_ROOT_PASSWORD is missing a value: Set MINIO_ROOT_PASSWOR
 
 A named volume is fine for development. For production, store data on a disk you choose, as described below.
 
-- The image comes from `quay.io`. Docker Hub refuses anonymous pulls of `minio/minio`, which makes `docker compose up` fail with `pull access denied`.
-- The tag is pinned to a release rather than `latest`. Object Lock and versioning behaviour differs between MinIO releases, and immutable backups depend on both. Bump the tag deliberately, then run `atlas storage-check` to confirm the bucket still reports `lock-capable`.
+- The image comes from `cgr.dev/chainguard`, which rebuilds upstream MinIO and serves it anonymously. Docker Hub (since 2026-09-12) and `quay.io` (since 2026-09-24) deny anonymous pulls of `minio/minio`, which makes `docker compose up` fail with `pull access denied` or `unauthorized`.
+- The image is pinned by digest rather than `latest`, because Chainguard only publishes a moving `latest` tag. The digest resolves to MinIO `RELEASE.2026-09-22T19-25-18Z`. Object Lock and versioning behaviour differs between MinIO releases, and immutable backups depend on both. Bump the digest deliberately, then run `atlas storage-check` to confirm the bucket still reports `lock-capable`.
 
 ### Bind mount to external storage
 
@@ -62,7 +62,7 @@ Replace the named volume with a bind mount to the disk or mount point that holds
 ```yaml
 services:
   minio:
-    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z
+    image: cgr.dev/chainguard/minio@sha256:bd014394a80898e68c149f2311fdf8d5a2c2f3bb2c33b9327ae6d02b4b065ae1
     container_name: atlas-minio
     ports:
       - '${MINIO_BIND_ADDRESS:-127.0.0.1}:9000:9000'
@@ -79,10 +79,10 @@ Create the directory and give the MinIO container user ownership:
 
 ```bash
 sudo mkdir -p /mnt/backup-drive/atlas-data
-sudo chown -R 1000:1000 /mnt/backup-drive/atlas-data
+sudo chown -R 65532:65532 /mnt/backup-drive/atlas-data
 ```
 
-UID `1000` is the default MinIO container user. If your image uses a different UID, check it with `docker exec atlas-minio id`.
+UID `65532` is the non-root user of the Chainguard image. The container cannot start on a directory it cannot write, so the `chown` must match it.
 
 ### Filesystem
 
@@ -123,11 +123,11 @@ echo '/dev/md0 /mnt/atlas-raid xfs defaults 0 0' | sudo tee -a /etc/fstab
 sudo mdadm --detail --scan | sudo tee -a /etc/mdadm/mdadm.conf
 ```
 
-Create the data directory owned by the MinIO container user (UID 1000) before bind-mounting it:
+Create the data directory owned by the MinIO container user (UID `65532`) before bind-mounting it:
 
 ```bash
 sudo mkdir -p /mnt/atlas-raid/atlas-data
-sudo chown -R 1000:1000 /mnt/atlas-raid/atlas-data
+sudo chown -R 65532:65532 /mnt/atlas-raid/atlas-data
 ```
 
 Then bind-mount `/mnt/atlas-raid/atlas-data` into the MinIO container.

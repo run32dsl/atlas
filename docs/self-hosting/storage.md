@@ -84,6 +84,20 @@ sudo chown -R 65532:65532 /mnt/backup-drive/atlas-data
 
 UID `65532` is the non-root user of the Chainguard image. The container cannot start on a directory it cannot write, so the `chown` must match it.
 
+::: warning Upgrading an existing installation
+Data created by the previous `quay.io` image is owned by UID `1000`, and the Chainguard container fails at startup with a permission error on `/data`. Stop the stack and change the owner before starting it again. The objects stay readable after the change.
+
+```bash
+# Bind mount
+sudo chown -R 65532:65532 /mnt/backup-drive/atlas-data
+
+# Named volume (the name is prefixed with the compose project name)
+sudo chown -R 65532:65532 "$(docker volume inspect <project>_minio_data --format '{{ .Mountpoint }}')"
+```
+
+A new named volume needs no change.
+:::
+
 ### Filesystem
 
 Format the volume with **ext4** or **XFS**:

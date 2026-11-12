@@ -1,4 +1,3 @@
-import { ClientSecretCredential } from '@azure/identity';
 import {
   AuthenticationHandler,
   Client,
@@ -10,6 +9,7 @@ import {
 } from '@microsoft/microsoft-graph-client';
 import { TokenCredentialAuthenticationProvider } from '@microsoft/microsoft-graph-client/authProviders/azureTokenCredentials/index.js';
 import { GraphCostMiddleware } from '@/graph-cost-middleware';
+import { create_graph_credential } from '@/graph-credential';
 import type { GraphConfig } from '@wisecom/atlas-core/utils/config';
 
 export const GRAPH_CLIENT_TOKEN = Symbol.for('GraphClient');
@@ -88,11 +88,7 @@ function assert_tls_not_disabled(): void {
 export function create_graph_auth_provider(
   config: GraphConfig,
 ): TokenCredentialAuthenticationProvider {
-  const credential = new ClientSecretCredential(
-    config.tenant_id,
-    config.client_id,
-    config.client_secret,
-  );
+  const credential = create_graph_credential(config);
   return new TokenCredentialAuthenticationProvider(credential, {
     scopes: ['https://graph.microsoft.com/.default'],
   });

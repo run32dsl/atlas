@@ -1,5 +1,6 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
@@ -27,6 +28,10 @@ import { render_static_view } from '@/ui/render';
 import { build_object_lock_request } from '@/command-object-lock';
 import { EXIT_PARTIAL, report_run_outcome, report_skipped_items } from '@/command-run-outcome';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import {
+  DRIVE_RESTORE_INTERRUPT_MESSAGE,
+  report_drive_restore,
+} from '@/commands/drive/restore-presenter';
 import { resolve_site_id } from '@/commands/sharepoint/site-resolution';
 import {
   require_target_for_profile,
@@ -191,8 +196,11 @@ async function report_site_backup(result: SharePointBackupResult): Promise<void>
     // "No changes" on a site that holds nothing reads as backed up, and there is no recovery
     // point at all (issue #405).
     logger.warn('No SharePoint content found. Nothing was backed up and no snapshot exists.');
-  } else {
+  } else if (result.summary.no_snapshot_reason === 'no_changes') {
     logger.info('No SharePoint changes detected. Snapshot skipped.');
+  } else {
+    // No reason means the run was interrupted or unhealthy, so its changes did not land (#683).
+    logger.warn('No snapshot created: the run was interrupted or every change failed.');
   }
 
   const { versions_stored, versions_unavailable } = result.summary;
@@ -213,6 +221,7 @@ async function report_site_backup(result: SharePointBackupResult): Promise<void>
     },
     'file',
   );
+  report_unreadable_keys(result.summary.unreadable_keys);
 }
 
 export async function execute_sharepoint_restore(
@@ -236,36 +245,29 @@ export async function execute_sharepoint_restore(
   const restore = restore_container.get<SharePointRestoreUseCase>(
     SHAREPOINT_RESTORE_USE_CASE_TOKEN,
   );
-  const result = await restore.restore_sharepoint(tenant_id, site_id, {
-    snapshot_id: options.snapshot,
-    ...(target_site_id ? { target_site_id } : {}),
-    ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
-    ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
-    ...(options.destination ? { destination: options.destination } : {}),
-    ...(options.inPlace === true ? { in_place: true } : {}),
-    ...(options.name ? { rename_to: options.name } : {}),
-  });
-
-  await render_static_view(
-    <Box flexDirection="column">
-      <Banner title={banner_title('sharepoint', 'Restore')} />
-      <KeyValueList
-        items={[
-          { label: 'Snapshot', value: result.snapshot_id },
-          { label: 'Files restored', value: String(result.files_restored) },
-          { label: 'Folders created', value: String(result.folders_created) },
-          ...target_profile_items(options.targetProfile, restore_container),
-        ]}
-      />
-    </Box>,
+  const result = await run_interruptible(
+    restore_container,
+    DRIVE_RESTORE_INTERRUPT_MESSAGE,
+    (gate) =>
+      restore.restore_sharepoint(tenant_id, site_id, {
+        snapshot_id: options.snapshot,
+        ...(target_site_id ? { target_site_id } : {}),
+        ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
+        ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
+        ...(options.destination ? { destination: options.destination } : {}),
+        ...(options.inPlace === true ? { in_place: true } : {}),
+        ...(options.name ? { rename_to: options.name } : {}),
+        should_interrupt: gate.should_interrupt,
+        abort_signal: gate.abort_signal,
+      }),
   );
-  report_skipped_items(result.files_skipped, 'File');
-  if (result.errors.length > 0) {
-    await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
-  } else {
-    logger.success('Restore completed successfully');
-  }
+  if (result === undefined) return;
+
+  await report_drive_restore(
+    banner_title('sharepoint', 'Restore'),
+    result,
+    target_profile_items(options.targetProfile, restore_container),
+  );
 }
 
 export async function execute_sharepoint_save(
@@ -295,6 +297,7 @@ export async function execute_sharepoint_save(
     </Box>,
   );
   report_skipped_items(result.files_skipped, 'File');
+  report_unreadable_keys(result.unreadable_keys);
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {
@@ -319,6 +322,7 @@ export async function execute_sharepoint_verify(
   const result = await verifier.verify_sharepoint_snapshot(tenant_id, site_id, options.snapshot);
 
   await render_static_view(<Banner title={banner_title('sharepoint', 'Verify')} />);
+  report_unreadable_keys(result.unreadable_keys);
   if (result.failed_file_ids.length === 0 && result.index_issues.length === 0) {
     logger.success(`All ${result.total_checked} entries passed verification`);
     return;

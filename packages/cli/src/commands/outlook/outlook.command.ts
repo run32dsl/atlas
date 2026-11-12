@@ -40,6 +40,8 @@ import {
   with_tenant,
   with_yes,
 } from '@/commands/shared/shared-options';
+import { OUTLOOK_QUARANTINE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
+import { register_quarantine_command } from '@/commands/shared/quarantine.command';
 
 type ContainerFactory = () => Container;
 
@@ -59,6 +61,11 @@ export function register_outlook_command(program: Command, get_container: Contai
   register_outlook_delete(group, get_container);
   register_outlook_status(group, get_container);
   register_outlook_mailboxes(group, get_container);
+  register_quarantine_command(group, get_container, {
+    workload: 'outlook',
+    object_noun: 'manifest',
+    token: OUTLOOK_QUARANTINE_USE_CASE_TOKEN,
+  });
 }
 
 function register_outlook_backup(group: Command, get_container: ContainerFactory): void {
@@ -105,6 +112,10 @@ function register_outlook_restore(group: Command, get_container: ContainerFactor
     .option('-m, --mailbox <email|id>', 'restore from all snapshots for this mailbox')
     .option('-T, --target <email>', 'target mailbox (defaults to source mailbox)')
     .option('--message <ref>', 'restore a single message by # from atlas list, or full ID')
+    .option(
+      '--destination <path>',
+      'restore under this folder instead of a generated Restore-<timestamp> folder',
+    )
     .option('--start-date <YYYY-MM-DD>', 'include snapshots created on or after this date')
     .option('--end-date <YYYY-MM-DD>', 'include snapshots created on or before this date')
     .option(

@@ -32,7 +32,15 @@ export function register_tenants_command(program: Command): void {
     .argument('<name>', 'profile name (lowercase letters, digits, dashes; max 32)')
     .requiredOption('--tenant-id <id>', 'Entra tenant ID (GUID or *.onmicrosoft.com domain)')
     .requiredOption('--client-id <id>', 'app registration client ID (GUID)')
-    .requiredOption('--client-secret <value>', 'client secret; "-" reads it from stdin')
+    .option('--client-secret <value>', 'client secret; "-" reads it from stdin')
+    .option(
+      '--client-certificate <path>',
+      'PEM file with the private key and certificate (instead of a client secret)',
+    )
+    .option(
+      '--client-certificate-password <value>',
+      'passphrase of an encrypted private key; "-" reads it from stdin',
+    )
     .option('--replace', 'overwrite the credentials of an existing profile')
     .action(
       async (
@@ -40,14 +48,22 @@ export function register_tenants_command(program: Command): void {
         options: {
           tenantId: string;
           clientId: string;
-          clientSecret: string;
+          clientSecret?: string;
+          clientCertificate?: string;
+          clientCertificatePassword?: string;
           replace?: boolean;
         },
       ) => {
         await execute_add_profile(name, {
           tenantId: options.tenantId,
           clientId: options.clientId,
-          clientSecret: options.clientSecret,
+          ...(options.clientSecret !== undefined ? { clientSecret: options.clientSecret } : {}),
+          ...(options.clientCertificate !== undefined
+            ? { clientCertificate: options.clientCertificate }
+            : {}),
+          ...(options.clientCertificatePassword !== undefined
+            ? { clientCertificatePassword: options.clientCertificatePassword }
+            : {}),
           ...(options.replace !== undefined ? { replace: options.replace } : {}),
         });
       },

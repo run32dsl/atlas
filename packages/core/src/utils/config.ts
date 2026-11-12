@@ -3,6 +3,7 @@ import { resolve, join } from 'node:path';
 import { homedir, platform } from 'node:os';
 import { config as load_dotenv } from 'dotenv';
 import { logger } from '@/utils/logger';
+import { describe_graph_credential_problem, pick_graph_credential } from '@/utils/graph-credential';
 import { read_secure_config } from '@/utils/secure-config-store';
 import {
   find_profile,
@@ -17,7 +18,12 @@ import {
 export interface GraphConfig {
   readonly tenant_id: string;
   readonly client_id: string;
-  readonly client_secret: string;
+  /** Client secret; exactly one of this and `client_certificate_path` is set. */
+  readonly client_secret?: string;
+  /** PEM file holding the certificate and its private key. */
+  readonly client_certificate_path?: string;
+  /** Passphrase of an encrypted private key in the PEM file. */
+  readonly client_certificate_password?: string;
 }
 
 export interface S3Config {
@@ -41,6 +47,8 @@ const ENV_MAP: Record<string, keyof AtlasConfig> = {
   ATLAS_TENANT_ID: 'tenant_id',
   ATLAS_CLIENT_ID: 'client_id',
   ATLAS_CLIENT_SECRET: 'client_secret',
+  ATLAS_CLIENT_CERTIFICATE_PATH: 'client_certificate_path',
+  ATLAS_CLIENT_CERTIFICATE_PASSWORD: 'client_certificate_password',
   ATLAS_S3_ENDPOINT: 's3_endpoint',
   ATLAS_S3_ACCESS_KEY: 's3_access_key',
   ATLAS_S3_SECRET_KEY: 's3_secret_key',
@@ -95,14 +103,19 @@ export function load_tenant_profile(name: string): GraphConfig {
   if (profile === undefined) {
     throw new Error(unknown_profile_message(name, profile_names(file_config, secure_config)));
   }
-  const missing = (['tenant_id', 'client_id', 'client_secret'] as const).filter((f) => !profile[f]);
+  const missing: string[] = (['tenant_id', 'client_id'] as const).filter((f) => !profile[f]);
+  if (!profile.client_secret && !profile.client_certificate_path) {
+    missing.push('client_secret or client_certificate_path');
+  }
   if (missing.length > 0) {
     throw new Error(`Tenant profile "${name}" is missing ${missing.join(', ')}.`);
   }
+  const problem = describe_graph_credential_problem(profile);
+  if (problem !== null) throw new Error(`Tenant profile "${name}": ${problem}`);
   return {
     tenant_id: profile.tenant_id!,
     client_id: profile.client_id!,
-    client_secret: profile.client_secret!,
+    ...pick_graph_credential(profile),
   };
 }
 
@@ -183,13 +196,18 @@ export function merge_and_validate(partial: Partial<AtlasConfig>): AtlasConfig {
   const required_fields: (keyof AtlasConfig)[] = [
     'tenant_id',
     'client_id',
-    'client_secret',
     's3_endpoint',
     's3_access_key',
     's3_secret_key',
     'encryption_passphrase',
   ];
-  const missing = required_fields.filter((f) => !partial[f]);
+  const missing: string[] = required_fields.filter((f) => !partial[f]);
+  if (!partial.client_secret && !partial.client_certificate_path) {
+    missing.push('client_secret or client_certificate_path');
+  } else {
+    const problem = describe_graph_credential_problem(partial);
+    if (problem !== null) throw new Error(`Invalid Graph credential: ${problem}`);
+  }
 
   if (missing.length > 0) {
     throw new Error(
@@ -202,7 +220,7 @@ export function merge_and_validate(partial: Partial<AtlasConfig>): AtlasConfig {
   return {
     tenant_id: partial.tenant_id!,
     client_id: partial.client_id!,
-    client_secret: partial.client_secret!,
+    ...pick_graph_credential(partial),
     s3_endpoint: partial.s3_endpoint!,
     s3_access_key: partial.s3_access_key!,
     s3_secret_key: partial.s3_secret_key!,

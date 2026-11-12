@@ -6,6 +6,8 @@ import type { RestoreUseCase, RestoreResult, RestoreOptions } from '@wisecom/atl
 import { RESTORE_USE_CASE_TOKEN } from '@wisecom/atlas-types';
 import { logger } from '@wisecom/atlas-core';
 import { report_run_outcome } from '@/command-run-outcome';
+import { run_interruptible } from '@/adapters/interruptible-run';
+import type { InterruptGate } from '@/adapters/interrupt-gate';
 import { resolve_outlook_scope } from '@/commands/outlook/scope';
 import { banner_title } from '@/ui/banner-title';
 import { Banner } from '@/ui/components/banner';
@@ -29,10 +31,13 @@ export interface OutlookRestoreOptions {
   targetProfile?: string;
   folder?: string;
   message?: string;
+  destination?: string;
   startDate?: string;
   endDate?: string;
   includeRecoverableItems?: boolean;
 }
+
+const RESTORE_INTERRUPT_MESSAGE = 'Stopping after the current message; the restore will be partial';
 
 /** Validates the scope flags, refusing the combinations that would restore to a guessed mailbox. */
 function validate_restore_options(options: OutlookRestoreOptions): void {
@@ -54,6 +59,11 @@ function validate_restore_options(options: OutlookRestoreOptions): void {
     logger.error('--start-date / --end-date can only be used with --mailbox (-m).');
     process.exit(1);
   }
+}
+
+/** Adds the chosen restore folder to the run summary; the generated default is shown at the end. */
+function push_destination_item(items: KeyValueItem[], destination: string | undefined): void {
+  if (destination !== undefined) items.push({ label: 'Destination', value: destination });
 }
 
 /** Parses a YYYY-MM-DD string into a Date at midnight UTC. */
@@ -93,13 +103,14 @@ export async function execute_outlook_restore(
   // validate_restore_options has already refused the ambiguous pair, so exactly one is set.
   const scope = resolve_outlook_scope(options);
   if (scope.mode === 'snapshot') {
-    return execute_snapshot_restore(restore_service, tenant_id, options);
+    return execute_snapshot_restore(restore_container, restore_service, tenant_id, options);
   }
-  return execute_mailbox_restore(container, restore_service, tenant_id, options);
+  return execute_mailbox_restore(container, restore_container, restore_service, tenant_id, options);
 }
 
 /** Snapshot-mode restore: restore from a single snapshot. */
 async function execute_snapshot_restore(
+  container: Container,
   service: RestoreUseCase,
   tenant_id: string,
   options: OutlookRestoreOptions,
@@ -111,22 +122,27 @@ async function execute_snapshot_restore(
   // `restore -s <id> -T other@example.com` silently restored to the original mailbox while the
   // undocumented `-m` spelling worked (issue #201).
   if (options.target) items.push({ label: 'Target mailbox', value: options.target });
+  push_destination_item(items, options.destination);
   await render_static_view(<KeyValueList items={items} />);
 
   const restore_options: RestoreOptions = {
     ...(options.folder && { folder_name: options.folder }),
     ...(options.message && { message_ref: options.message }),
     ...(options.target && { target_mailbox: options.target }),
+    ...(options.destination !== undefined && { destination: options.destination }),
     create_progress: create_transfer_progress('restored'),
   };
 
-  const result = await service.restore_snapshot(tenant_id, options.snapshot!, restore_options);
-  await report_restore_result(result);
+  const result = await run_interruptible(container, RESTORE_INTERRUPT_MESSAGE, (gate) =>
+    service.restore_snapshot(tenant_id, options.snapshot!, with_gate(restore_options, gate)),
+  );
+  if (result !== undefined) await report_restore_result(result);
 }
 
 /** Mailbox-mode restore: aggregate all snapshots for a mailbox. */
 async function execute_mailbox_restore(
   container: Container,
+  restore_container: Container,
   service: RestoreUseCase,
   tenant_id: string,
   options: OutlookRestoreOptions,
@@ -139,6 +155,7 @@ async function execute_mailbox_restore(
   if (end_date) items.push({ label: 'End date', value: options.endDate! });
   if (options.folder) items.push({ label: 'Folder filter', value: options.folder });
   if (options.target) items.push({ label: 'Target mailbox', value: options.target });
+  push_destination_item(items, options.destination);
   await render_static_view(<KeyValueList items={items} />);
 
   const restore_options: RestoreOptions = {
@@ -147,12 +164,20 @@ async function execute_mailbox_restore(
     ...(start_date && { start_date }),
     ...(end_date && { end_date }),
     ...(options.target && { target_mailbox: options.target }),
+    ...(options.destination !== undefined && { destination: options.destination }),
     create_progress: create_transfer_progress('restored'),
   };
 
   const owner = await resolve_owner(container, tenant_id, options.mailbox!);
-  const result = await service.restore_mailbox(tenant_id, owner.object_id, restore_options);
-  await report_restore_result(result);
+  const result = await run_interruptible(restore_container, RESTORE_INTERRUPT_MESSAGE, (gate) =>
+    service.restore_mailbox(tenant_id, owner.object_id, with_gate(restore_options, gate)),
+  );
+  if (result !== undefined) await report_restore_result(result);
+}
+
+/** Hands the interrupt gate to the service, so Ctrl+C also ends a Graph wait (issue #682). */
+function with_gate(options: RestoreOptions, gate: InterruptGate): RestoreOptions {
+  return { ...options, should_interrupt: gate.should_interrupt, abort_signal: gate.abort_signal };
 }
 
 /**

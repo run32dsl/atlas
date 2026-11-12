@@ -1,5 +1,6 @@
 import { Box } from 'ink';
 import type { Container } from 'inversify';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN } from '@wisecom/atlas-core';
 import type { ExcludedFolder } from '@wisecom/atlas-types';
@@ -95,11 +96,14 @@ async function backup_single_mailbox(
     run_backup_with_cli_adapter(backup_use_case, tenant_id, mailbox_id, sync_options, gate),
   );
   if (result === undefined) return;
-  logger.success(
-    `Snapshot ${result.snapshot.id} -- ` +
-      `${result.manifest.total_objects} objects, ` +
-      format_bytes(result.manifest.total_size_bytes),
-  );
+  // A run cancelled before it read any folder reports a placeholder snapshot that was never stored.
+  if (result.snapshot_stored !== false) {
+    logger.success(
+      `Snapshot ${result.snapshot.id} -- ` +
+        `${result.manifest.total_objects} objects, ` +
+        format_bytes(result.manifest.total_size_bytes),
+    );
+  }
   report_excluded_folders(result.summary.excluded_folders);
   report_run_outcome(
     {
@@ -109,6 +113,7 @@ async function backup_single_mailbox(
     },
     'folder',
   );
+  report_unreadable_keys(result.summary.unreadable_keys);
 }
 
 /**

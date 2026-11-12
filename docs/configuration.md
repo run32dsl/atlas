@@ -44,11 +44,15 @@ pbpaste | atlas tenants add contoso --tenant-id <tenant-id> --client-id <client-
 atlas tenants validate contoso
 ```
 
-| Environment variable  | Profile field   | `atlas tenants add` option | Description                                                        |
-| --------------------- | --------------- | -------------------------- | ------------------------------------------------------------------ |
-| `ATLAS_TENANT_ID`     | `tenant_id`     | `--tenant-id`              | Microsoft Entra tenant ID, a GUID or an `*.onmicrosoft.com` domain |
-| `ATLAS_CLIENT_ID`     | `client_id`     | `--client-id`              | Application (client) ID of the app registration                    |
-| `ATLAS_CLIENT_SECRET` | `client_secret` | `--client-secret`          | Client secret value. Pass `-` to read it from stdin                |
+| Environment variable                | Profile field                 | `atlas tenants add` option      | Description                                                               |
+| ----------------------------------- | ----------------------------- | ------------------------------- | ------------------------------------------------------------------------- |
+| `ATLAS_TENANT_ID`                   | `tenant_id`                   | `--tenant-id`                   | Microsoft Entra tenant ID, a GUID or an `*.onmicrosoft.com` domain        |
+| `ATLAS_CLIENT_ID`                   | `client_id`                   | `--client-id`                   | Application (client) ID of the app registration                           |
+| `ATLAS_CLIENT_SECRET`               | `client_secret`               | `--client-secret`               | Client secret value. Pass `-` to read it from stdin                       |
+| `ATLAS_CLIENT_CERTIFICATE_PATH`     | `client_certificate_path`     | `--client-certificate`          | PEM file with the private key and certificate. Replaces the client secret |
+| `ATLAS_CLIENT_CERTIFICATE_PASSWORD` | `client_certificate_password` | `--client-certificate-password` | Passphrase of an encrypted private key. Pass `-` to read it from stdin    |
+
+Set either the client secret or the certificate path, never both. Atlas refuses to start otherwise, and `atlas tenants validate` reports the same error. The environment adds to the profile rather than replacing the other credential type, so a profile that stores a secret needs its secret removed before `ATLAS_CLIENT_CERTIFICATE_PATH` can be used with it. See [certificate credentials](/azure-ad-setup#certificate-credentials).
 
 Profile names are lowercase letters, digits, and dashes, up to 32 characters. The name `default` holds the legacy top-level fields described in [Selecting a profile](#selecting-a-profile).
 
@@ -57,7 +61,7 @@ A profile's tenant ID also names the bucket that commands read and write, `atlas
 Shared settings, including the passphrase, are the same for every profile. One S3 key and one passphrase therefore reach every profile's bucket. To isolate tenants from each other at the storage layer, see [Bucket isolation](/operations/storage-layout#bucket-isolation). The secrets are each profile's client secret, `s3.secret-key`, and `encryption.passphrase`. `atlas config list` and `atlas config get` mask the shared secrets.
 
 ::: warning Environment variables override the selected profile
-`ATLAS_TENANT_ID`, `ATLAS_CLIENT_ID`, and `ATLAS_CLIENT_SECRET` replace the selected profile's values. Do not export them while you use several profiles, or one command can mix credentials from two tenants. They never apply to the `--target-profile` of a cross-tenant restore.
+`ATLAS_TENANT_ID`, `ATLAS_CLIENT_ID`, `ATLAS_CLIENT_SECRET`, `ATLAS_CLIENT_CERTIFICATE_PATH`, and `ATLAS_CLIENT_CERTIFICATE_PASSWORD` replace the selected profile's values. Do not export them while you use several profiles, or one command can mix credentials from two tenants. They never apply to the `--target-profile` of a cross-tenant restore.
 :::
 
 ## Sources and precedence

@@ -115,13 +115,17 @@ function print_profile_rows(
     const profile = find_profile(name, file, stored) ?? {};
     const marker = name === selected ? '*' : ' ';
     const secret =
-      profile.client_secret === undefined ? '<unset>' : mask_secret(profile.client_secret);
+      profile.client_certificate_path !== undefined
+        ? `certificate ${profile.client_certificate_path}`
+        : profile.client_secret === undefined
+          ? 'secret <unset>'
+          : `secret ${mask_secret(profile.client_secret)}`;
     const in_store = stored.tenants?.[name] !== undefined;
     const source =
       in_store && file_names.includes(name) ? 'both' : in_store ? 'secure store' : 'config file';
     logger.info(
       `${marker} ${name.padEnd(width)}  tenant ${profile.tenant_id ?? '<unset>'}  ` +
-        `client ${profile.client_id ?? '<unset>'}  secret ${secret}  (${source})`,
+        `client ${profile.client_id ?? '<unset>'}  ${secret}  (${source})`,
     );
   }
 }

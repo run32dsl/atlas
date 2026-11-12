@@ -1,5 +1,6 @@
 import type { Container } from 'inversify';
 import { Box } from 'ink';
+import { report_unreadable_keys } from '@/command-unreadable-objects';
 import type { AtlasConfig } from '@wisecom/atlas-core';
 import { ATLAS_CONFIG_TOKEN, GRAPH_IDENTITY_RESOLVER_TOKEN, logger } from '@wisecom/atlas-core';
 import type {
@@ -31,6 +32,10 @@ import {
   target_profile_items,
 } from '@/commands/shared/restore-target-container';
 import { run_interruptible } from '@/adapters/interruptible-run';
+import {
+  DRIVE_RESTORE_INTERRUPT_MESSAGE,
+  report_drive_restore,
+} from '@/commands/drive/restore-presenter';
 
 export interface OneDriveTenantOptions {
   tenant?: string;
@@ -182,8 +187,11 @@ export async function execute_onedrive_backup(
     // "No changes" on a drive that holds nothing reads as backed up, and there is no recovery
     // point at all (issue #405).
     logger.warn('No OneDrive content found. Nothing was backed up and no snapshot exists.');
-  } else {
+  } else if (result.summary.no_snapshot_reason === 'no_changes') {
     logger.info('No OneDrive changes detected. Snapshot skipped.');
+  } else {
+    // No reason means the run was interrupted or unhealthy, so its changes did not land (#683).
+    logger.warn('No snapshot created: the run was interrupted or every change failed.');
   }
 
   const { versions_stored, versions_unavailable } = result.summary;
@@ -208,6 +216,7 @@ export async function execute_onedrive_backup(
     },
     'file',
   );
+  report_unreadable_keys(result.summary.unreadable_keys);
 }
 
 export async function execute_onedrive_restore(
@@ -222,36 +231,29 @@ export async function execute_onedrive_restore(
     ? await resolve_restore_target(restore_container, tenant_id, options.targetOwner)
     : undefined;
   const restore = restore_container.get<OneDriveRestoreUseCase>(ONEDRIVE_RESTORE_USE_CASE_TOKEN);
-  const result = await restore.restore_onedrive(tenant_id, owner.object_id, {
-    snapshot_id: options.snapshot,
-    ...(target_owner ? { target_owner_id: target_owner.object_id } : {}),
-    ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
-    ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
-    ...(options.destination ? { destination: options.destination } : {}),
-    ...(options.inPlace === true ? { in_place: true } : {}),
-    ...(options.name ? { rename_to: options.name } : {}),
-  });
-
-  await render_static_view(
-    <Box flexDirection="column">
-      <Banner title={banner_title('onedrive', 'Restore')} />
-      <KeyValueList
-        items={[
-          { label: 'Snapshot', value: result.snapshot_id },
-          { label: 'Files restored', value: String(result.files_restored) },
-          { label: 'Folders created', value: String(result.folders_created) },
-          ...target_profile_items(options.targetProfile, restore_container),
-        ]}
-      />
-    </Box>,
+  const result = await run_interruptible(
+    restore_container,
+    DRIVE_RESTORE_INTERRUPT_MESSAGE,
+    (gate) =>
+      restore.restore_onedrive(tenant_id, owner.object_id, {
+        snapshot_id: options.snapshot,
+        ...(target_owner ? { target_owner_id: target_owner.object_id } : {}),
+        ...(options.fileFilter ? { file_filter: options.fileFilter } : {}),
+        ...(options.conflict ? { conflict_behavior: options.conflict } : {}),
+        ...(options.destination ? { destination: options.destination } : {}),
+        ...(options.inPlace === true ? { in_place: true } : {}),
+        ...(options.name ? { rename_to: options.name } : {}),
+        should_interrupt: gate.should_interrupt,
+        abort_signal: gate.abort_signal,
+      }),
   );
-  report_skipped_items(result.files_skipped, 'File');
-  if (result.errors.length > 0) {
-    await render_static_view(<ErrorList errors={result.errors} max={result.errors.length} />);
-    process.exitCode = 1;
-  } else {
-    logger.success('Restore completed successfully');
-  }
+  if (result === undefined) return;
+
+  await report_drive_restore(
+    banner_title('onedrive', 'Restore'),
+    result,
+    target_profile_items(options.targetProfile, restore_container),
+  );
 }
 
 export async function execute_onedrive_save(
@@ -280,6 +282,7 @@ export async function execute_onedrive_save(
     </Box>,
   );
   report_skipped_items(result.files_skipped, 'File');
+  report_unreadable_keys(result.unreadable_keys);
   if (result.integrity_failures.length > 0)
     logger.warn(`Integrity failures: ${result.integrity_failures.length}`);
   if (result.errors.length > 0) {
@@ -305,6 +308,7 @@ export async function execute_onedrive_verify(
   );
 
   await render_static_view(<Banner title={banner_title('onedrive', 'Verify')} />);
+  report_unreadable_keys(result.unreadable_keys);
   if (result.failed_file_ids.length === 0 && result.index_issues.length === 0) {
     logger.success(`All ${result.total_checked} entries passed verification`);
     return;

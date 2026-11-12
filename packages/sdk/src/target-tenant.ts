@@ -29,7 +29,7 @@ import { validate_graph_token } from '@/instance-validation';
 export const STORAGE_OBSERVER_TOKEN = Symbol.for('AtlasSdkStorageObserver');
 
 /** Public option name for each Graph field, in the order errors report them. */
-const PUBLIC_FIELDS = {
+const PUBLIC_FIELDS: Partial<Record<keyof GraphConfig, string>> = {
   tenant_id: 'tenantId',
   client_id: 'clientId',
   client_secret: 'clientSecret',

@@ -1,6 +1,8 @@
+import { resolve } from 'node:path';
 import type { TenantProfile } from '@wisecom/atlas-core';
 import {
   PROFILE_NAME_RE,
+  describe_graph_credential_problem,
   TENANT_KEYS,
   find_profile,
   list_profiles,
@@ -15,7 +17,9 @@ import { resolve_secret_option } from '@/utils/secret-option';
 export interface AddProfileOptions {
   readonly tenantId: string;
   readonly clientId: string;
-  readonly clientSecret: string;
+  readonly clientSecret?: string;
+  readonly clientCertificate?: string;
+  readonly clientCertificatePassword?: string;
   readonly replace?: boolean;
 }
 
@@ -61,16 +65,36 @@ export async function execute_add_profile(name: string, options: AddProfileOptio
   }
 }
 
-/** Resolves the secret (`-` reads stdin) and validates all three credentials before any write. */
+/**
+ * Resolves the secret or certificate (`-` reads stdin) and validates the credentials before any
+ * write. Exactly one of the client secret and the client certificate must be given.
+ */
 function build_credentials(options: AddProfileOptions): TenantProfile {
-  const client_secret = resolve_secret_option(options.clientSecret, '--client-secret') ?? '';
+  const problem = describe_graph_credential_problem({
+    ...(options.clientSecret !== undefined ? { client_secret: options.clientSecret } : {}),
+    ...(options.clientCertificate !== undefined
+      ? { client_certificate_path: options.clientCertificate }
+      : {}),
+    ...(options.clientCertificatePassword !== undefined
+      ? { client_certificate_password: options.clientCertificatePassword }
+      : {}),
+  });
+  if (problem !== null) throw new Error(`Invalid credential: ${problem}`);
+
+  const client_secret = resolve_secret_option(options.clientSecret, '--client-secret');
+  const certificate_password = resolve_secret_option(
+    options.clientCertificatePassword,
+    '--client-certificate-password',
+  );
   const inputs: Record<string, string> = {
     'tenant-id': options.tenantId,
     'client-id': options.clientId,
-    'client-secret': client_secret,
+    ...(client_secret !== undefined ? { 'client-secret': client_secret } : {}),
   };
   for (const spec of TENANT_KEYS) {
-    const error = spec.validate(inputs[spec.key] ?? '');
+    const value = inputs[spec.key];
+    if (value === undefined) continue;
+    const error = spec.validate(value);
     if (error !== null) {
       throw new Error(`Invalid --${spec.key}: ${error}`);
     }
@@ -80,6 +104,12 @@ function build_credentials(options: AddProfileOptions): TenantProfile {
   return {
     tenant_id: options.tenantId.toLowerCase(),
     client_id: options.clientId,
-    client_secret,
+    ...(client_secret !== undefined ? { client_secret } : {}),
+    ...(options.clientCertificate !== undefined
+      ? { client_certificate_path: resolve(options.clientCertificate) }
+      : {}),
+    ...(certificate_password !== undefined
+      ? { client_certificate_password: certificate_password }
+      : {}),
   };
 }

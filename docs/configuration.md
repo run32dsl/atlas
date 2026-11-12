@@ -52,7 +52,7 @@ atlas tenants validate contoso
 | `ATLAS_CLIENT_CERTIFICATE_PATH`     | `client_certificate_path`     | `--client-certificate`          | PEM file with the private key and certificate. Replaces the client secret |
 | `ATLAS_CLIENT_CERTIFICATE_PASSWORD` | `client_certificate_password` | `--client-certificate-password` | Passphrase of an encrypted private key. Pass `-` to read it from stdin    |
 
-Set either the client secret or the certificate path, never both. Atlas refuses to start otherwise. See [certificate credentials](/azure-ad-setup#certificate-credentials).
+Set either the client secret or the certificate path, never both. Atlas refuses to start otherwise, and `atlas tenants validate` reports the same error. The environment adds to the profile rather than replacing the other credential type, so a profile that stores a secret needs its secret removed before `ATLAS_CLIENT_CERTIFICATE_PATH` can be used with it. See [certificate credentials](/azure-ad-setup#certificate-credentials).
 
 Profile names are lowercase letters, digits, and dashes, up to 32 characters. The name `default` holds the legacy top-level fields described in [Selecting a profile](#selecting-a-profile).
 

@@ -61,6 +61,8 @@ const base = ['add', 'work', '--tenant-id', TENANT, '--client-id', CLIENT];
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.read_env_overrides.mockReturnValue({});
+  mocks.read_secure_config.mockReturnValue({});
   output = [];
   const capture = (...parts: unknown[]): void => {
     output.push(parts.map(String).join(' '));
@@ -127,5 +129,21 @@ describe('atlas tenants add --client-certificate', () => {
 
     expect(process.exitCode).toBe(1);
     expect(output.join('\n')).toMatch(/Cannot read client certificate file/);
+  });
+});
+
+describe('atlas tenants validate with mixed credentials', () => {
+  it('fails a stored secret profile when the environment adds a certificate', async () => {
+    mocks.read_secure_config.mockReturnValue({
+      tenants: { work: { tenant_id: TENANT, client_id: CLIENT, client_secret: 's' } },
+      active_tenant: 'work',
+    } as never);
+    mocks.read_env_overrides.mockReturnValue({ client_certificate_path: pem } as never);
+
+    await run(['validate']);
+
+    expect(process.exitCode).toBe(1);
+    expect(output.join('\n')).toMatch(/not both/);
+    expect(azure_mocks.certificate).not.toHaveBeenCalled();
   });
 });

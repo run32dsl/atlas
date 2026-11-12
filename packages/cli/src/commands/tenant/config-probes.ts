@@ -1,6 +1,6 @@
 import { ListBucketsCommand } from '@aws-sdk/client-s3';
 import type { GraphConfig, S3Config } from '@wisecom/atlas-core';
-import { logger } from '@wisecom/atlas-core';
+import { describe_graph_credential_problem, logger } from '@wisecom/atlas-core';
 import { create_graph_credential, describe_graph_auth_failure } from '@wisecom/atlas-m365-graph';
 import { create_s3_client } from '@wisecom/atlas-s3';
 
@@ -16,10 +16,10 @@ export async function probe_graph(
   profile?: string,
 ): Promise<boolean> {
   const label = profile === undefined ? 'Microsoft Graph' : `Microsoft Graph [${profile}]`;
-  const has_credential =
-    config.client_secret !== undefined || config.client_certificate_path !== undefined;
-  if (!GRAPH_FIELDS.every((f) => config[f] !== undefined) || !has_credential) {
-    logger.warn(`${label}: credentials incomplete -- add them with "atlas tenants add"`);
+  const problem = describe_graph_credential_problem(config);
+  if (!GRAPH_FIELDS.every((f) => config[f] !== undefined) || problem !== null) {
+    const detail = config.client_secret && config.client_certificate_path ? ` (${problem})` : '';
+    logger.warn(`${label}: credentials incomplete${detail} -- add them with "atlas tenants add"`);
     return false;
   }
   try {
